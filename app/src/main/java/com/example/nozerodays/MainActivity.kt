@@ -4,6 +4,7 @@ import android.content.Context
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.core.view.WindowCompat
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
@@ -31,7 +32,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
@@ -46,11 +46,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
-import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
-import androidx.compose.ui.input.nestedscroll.NestedScrollSource
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -58,7 +54,9 @@ import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.tooling.preview.Preview
@@ -69,6 +67,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.room.*
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import com.example.nozerodays.ui.theme.NoZeroDaysTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -79,11 +79,11 @@ import java.time.Duration
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalDateTime
-import java.time.LocalTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import java.util.UUID
+import kotlin.math.abs
 import kotlin.random.Random
 
 // --- Persistence Layer ---
@@ -93,6 +93,12 @@ data class DayRecord(
     @PrimaryKey val id: UUID = UUID.randomUUID(),
     val date: LocalDateTime,
     val completedHabits: Set<Int>
+)
+
+@Entity(tableName = "habit_names")
+data class HabitNameEntity(
+    @PrimaryKey val habitIndex: Int,
+    val name: String
 )
 
 class Converters {
@@ -142,12 +148,28 @@ interface DayRecordDao {
     fun getRecent(since: LocalDateTime): Flow<List<DayRecord>>
 }
 
-@Database(entities = [DayRecord::class], version = 1)
+@Dao
+interface HabitNameDao {
+    @Query("SELECT * FROM habit_names ORDER BY habitIndex ASC")
+    fun getAll(): Flow<List<HabitNameEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(habitName: HabitNameEntity)
+}
+
+@Database(entities = [DayRecord::class, HabitNameEntity::class], version = 2)
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun dayRecordDao(): DayRecordDao
+    abstract fun habitNameDao(): HabitNameDao
 
     companion object {
+        private val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("CREATE TABLE IF NOT EXISTS `habit_names` (`habitIndex` INTEGER NOT NULL, `name` TEXT NOT NULL, PRIMARY KEY(`habitIndex`))")
+            }
+        }
+
         @Volatile
         private var INSTANCE: AppDatabase? = null
 
@@ -157,7 +179,7 @@ abstract class AppDatabase : RoomDatabase() {
                     context.applicationContext,
                     AppDatabase::class.java,
                     "no_zero_days_db"
-                ).build()
+                ).addMigrations(MIGRATION_1_2).build()
                 INSTANCE = instance
                 instance
             }
@@ -168,6 +190,7 @@ abstract class AppDatabase : RoomDatabase() {
 class HabitViewModel(applicationContext: Context) : ViewModel() {
     private val db = AppDatabase.getDatabase(applicationContext)
     private val dao = db.dayRecordDao()
+    private val habitNameDao = db.habitNameDao()
 
     val history: StateFlow<List<DayRecord>> = dao.getAll()
         .stateIn(
@@ -175,6 +198,26 @@ class HabitViewModel(applicationContext: Context) : ViewModel() {
             started = SharingStarted.WhileSubscribed(5000),
             initialValue = emptyList()
         )
+
+    private val defaultNames = habits.map { it.name }
+
+    val habitNames: StateFlow<List<String>> = habitNameDao.getAll()
+        .map { entities ->
+            defaultNames.mapIndexed { index, default ->
+                entities.find { it.habitIndex == index }?.name ?: default
+            }
+        }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = defaultNames
+        )
+
+    fun renameHabit(index: Int, newName: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            habitNameDao.insert(HabitNameEntity(habitIndex = index, name = newName))
+        }
+    }
 
     fun toggleHabit(record: DayRecord, habitIndex: Int) {
         val newHabits = if (record.completedHabits.contains(habitIndex)) {
@@ -193,13 +236,33 @@ class HabitViewModel(applicationContext: Context) : ViewModel() {
         withContext(Dispatchers.IO) {
             val startOfDay = LocalDate.now().atStartOfDay()
             val endOfDay = startOfDay.plusDays(1)
-            
+
             val existing = dao.getRecordForRange(startOfDay, endOfDay)
             if (existing == null) {
                 dao.insert(DayRecord(date = LocalDateTime.now(), completedHabits = emptySet()))
             }
         }
     }
+
+    // ┌──────────────────────────────────────────────────────────┐
+    // │  DEBUG: Remove this entire block to disable dummy data   │
+    // └──────────────────────────────────────────────────────────┘
+    suspend fun seedDummyData() {
+        withContext(Dispatchers.IO) {
+            // Only seed if DB has fewer than 2 records (just today)
+            val existing = dao.getAll().first()
+            if (existing.size > 2) return@withContext
+
+            val rng = Random(42) // Fixed seed for reproducible data
+            val today = LocalDate.now()
+            for (i in 24 downTo 1) {
+                val date = today.minusDays(i.toLong()).atTime(12, 0)
+                val habits = (0..3).filter { rng.nextFloat() > 0.4f }.toSet()
+                dao.insert(DayRecord(date = date, completedHabits = habits))
+            }
+        }
+    }
+    // ── END DEBUG BLOCK ──
 }
 
 // --- UI Layer ---
@@ -207,6 +270,7 @@ class HabitViewModel(applicationContext: Context) : ViewModel() {
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        WindowCompat.setDecorFitsSystemWindows(window, false)
         setContent {
             NoZeroDaysTheme {
                 Surface(modifier = Modifier.fillMaxSize(), color = Color.Black) {
@@ -219,13 +283,13 @@ class MainActivity : ComponentActivity() {
 
 data class Habit(val name: String, val color: Color)
 val habits = listOf(
-    Habit("created", Color(0xFFEB5353)), // TL
-    Habit("helped", Color(0xFFD5BA26)),  // TR
-    Habit("learned", Color(0xFF36AE7C)), // BL
-    Habit("health", Color(0xFF187498))   // BR
+    Habit("Art", Color(0xFFEB5353)), // TL
+    Habit("Exercise", Color(0xFFD5BA26)),  // TR
+    Habit("Study", Color(0xFF36AE7C)), // BL
+    Habit("Meditate", Color(0xFF187498))   // BR
 )
 
-@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun NoZeroDaysApp() {
     val context = LocalContext.current
@@ -233,7 +297,7 @@ fun NoZeroDaysApp() {
     val history by viewModel.history.collectAsState()
     
     var timeRemaining by remember { mutableStateOf("00:00:00") }
-    var habitNames by remember { mutableStateOf(habits.map { it.name }) }
+    val habitNames by viewModel.habitNames.collectAsState()
     var showStats by remember { mutableStateOf(false) }
     val density = LocalDensity.current
     val configuration = LocalConfiguration.current
@@ -241,6 +305,7 @@ fun NoZeroDaysApp() {
 
     // Ensure we have at least one day to show (today)
     LaunchedEffect(Unit) {
+        viewModel.seedDummyData() // DEBUG: Remove this line to disable dummy data
         viewModel.ensureTodayExists()
     }
 
@@ -273,11 +338,27 @@ fun NoZeroDaysApp() {
         }
     }
 
+    val coroutineScope = rememberCoroutineScope()
+
+    // Observe the IME (keyboard) height so we can translate the entire layout upward
+    val imeInsets = WindowInsets.ime
+    val imeHeightPx = with(density) { imeInsets.getBottom(this).toFloat() }
+
     Box(modifier = Modifier.fillMaxSize()) {
-        Column(modifier = Modifier.fillMaxSize()) {
-            
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer { translationY = -imeHeightPx }
+        ) {
+
             // ── 1. Header Section (Top Left) ──
-            Column(modifier = Modifier.padding(start = 32.dp, top = 64.dp)) {
+            Column(
+                modifier = Modifier
+                    .padding(start = 32.dp, top = 64.dp)
+                    .clickable(enabled = activeIndex != history.size - 1) {
+                        coroutineScope.launch { pagerState.animateScrollToPage(history.size - 1) }
+                    }
+            ) {
                 Text(
                     text = activeDay.date.format(DateTimeFormatter.ofPattern("EEEE")),
                     color = Color.White,
@@ -292,14 +373,15 @@ fun NoZeroDaysApp() {
                     fontWeight = FontWeight.Medium
                 )
                 Spacer(modifier = Modifier.height(12.dp))
+                val isToday = activeDay.date.toLocalDate() == LocalDate.now()
                 Text(
-                    text = "$timeRemaining still remaining",
+                    text = if (isToday) "$timeRemaining still remaining" else "This day has ended",
                     color = Color(0xFFC3C3C3),
                     fontSize = 18.sp
                 )
             }
 
-            Spacer(modifier = Modifier.weight(1.5f))
+            Spacer(modifier = Modifier.weight(1f))
 
             // ── 2. Tagline & Stats Button ──
             Column(modifier = Modifier.padding(start = 32.dp)) {
@@ -330,25 +412,25 @@ fun NoZeroDaysApp() {
                 }
             }
 
-            Spacer(modifier = Modifier.weight(1f))
+            Spacer(modifier = Modifier.height(41.dp))
 
             // ── 3. Horizontal Timeline ──
-            // Each page slot is a fixed 72dp (inactiveSize 36 + gap 36).
-            // Circle sizes are interpolated visually via lerp and overflow the slot
-            // using wrapContentSize(unbounded = true).
-            //
-            // Position the active circle so its RIGHT edge is 36dp from the screen edge.
-            // Active circle center X = screenWidth - 36 - activeSize/2 = screenWidth - 88.5dp
-            // Page slot center at startPadding + pageSize/2, so:
-            //   startPadding = activeCenterX - pageSize/2
+            // Page slot sized so active circle (105dp) has a 40dp gap to its
+            // immediate inactive neighbor (36dp). Inactive circles are then
+            // shifted inward with graphicsLayer so their edge-to-edge gap is
+            // also 40dp (center-to-center 76dp instead of 110.5dp).
             run {
                 val activeSize = 105.dp
                 val inactiveSize = 36.dp
-                val gap = 36.dp
-                val pageSize = (activeSize / 2) + gap + (inactiveSize / 2) // 106.5dp
+                val gap = 41.dp
+                val pageSize = (activeSize / 2) + gap + (inactiveSize / 2) // 110.5dp
                 val activeCenterX = screenWidth - 36.dp - (activeSize / 2)
                 val startPadding = activeCenterX - (pageSize / 2)
                 val endPadding = (screenWidth - startPadding - pageSize).coerceAtLeast(0.dp)
+
+                // How much to shift each successive inactive circle inward.
+                // Page center-to-center is 110.5dp, but inactive-inactive should be 76dp.
+                val inactiveStepReduction = with(density) { (pageSize - (inactiveSize + gap)).toPx() }
 
                 Box(
                     modifier = Modifier
@@ -363,21 +445,28 @@ fun NoZeroDaysApp() {
                         beyondViewportPageCount = 10,
                         flingBehavior = PagerDefaults.flingBehavior(
                             state = pagerState,
-                            pagerSnapDistance = PagerSnapDistance.atMost(10)
+                            pagerSnapDistance = PagerSnapDistance.atMost(100)
                         ),
                         key = { history[it].id },
                         verticalAlignment = Alignment.CenterVertically
                     ) { pageIndex ->
-                        val pageOffset = kotlin.math.abs(
-                            pageIndex - (pagerState.currentPage + pagerState.currentPageOffsetFraction)
-                        ).coerceIn(0f, 1f)
+                        val rawOffset = pageIndex - (pagerState.currentPage + pagerState.currentPageOffsetFraction)
+                        val absOffset = abs(rawOffset).coerceIn(0f, 1f)
+                        val circleSize = lerp(activeSize, inactiveSize, absOffset)
 
-                        val circleSize = lerp(activeSize, inactiveSize, pageOffset)
+                        // Shift inactive pages inward so their spacing compresses
+                        // from 110.5dp to 76dp center-to-center. Pages at distance 1
+                        // (immediate neighbor) need no shift. Each page beyond that
+                        // shifts by inactiveStepReduction toward the active page.
+                        val stepsToCompress = (abs(rawOffset) - 1f).coerceAtLeast(0f)
+                        val direction = if (rawOffset < 0f) 1f else -1f
+                        val translationXPx = direction * stepsToCompress * inactiveStepReduction
 
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
-                                .wrapContentSize(unbounded = true),
+                                .wrapContentSize(unbounded = true)
+                                .graphicsLayer { translationX = translationXPx },
                             contentAlignment = Alignment.Center
                         ) {
                             QuadrantCircle(
@@ -399,7 +488,7 @@ fun NoZeroDaysApp() {
                     viewModel.toggleHabit(activeDay, habitIndex)
                 },
                 onRenameHabit = { index, newName ->
-                    habitNames = habitNames.toMutableList().also { it[index] = newName }
+                    viewModel.renameHabit(index, newName)
                 }
             )
         }
@@ -425,8 +514,8 @@ fun StatsScreen(
     habitNames: List<String>,
     onClose: () -> Unit
 ) {
-    val last30Days = history.takeLast(30)
-    
+    val last28Days = history.takeLast(28)
+
     val totals = IntArray(4) { habitIndex ->
         history.count { it.completedHabits.contains(habitIndex) }
     }
@@ -459,47 +548,6 @@ fun StatsScreen(
             verticalArrangement = Arrangement.SpaceBetween
         ) {
             Spacer(modifier = Modifier.height(8.dp))
-            
-            Column {
-                Text(
-                    text = "LAST 30 DAYS",
-                    color = Color.White,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 14.sp
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    repeat(3) { rowIndex ->
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            repeat(10) { colIndex ->
-                                val recordIndex = rowIndex * 10 + colIndex
-                                if (recordIndex < last30Days.size) {
-                                    QuadrantCircle(
-                                        completedHabits = last30Days[recordIndex].completedHabits,
-                                        size = 20.dp
-                                    )
-                                } else {
-                                    Spacer(modifier = Modifier.size(20.dp))
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            Column {
-                Text(
-                    text = "LIFE LINE",
-                    color = Color.White,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 14.sp
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                LifeLineGraph(history.takeLast(39))
-            }
 
             Column {
                 Text(
@@ -529,6 +577,46 @@ fun StatsScreen(
                         }
                     }
                 }
+            }
+
+            Column {
+                Text(
+                    text = "LAST 4 WEEKS",
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    repeat(4) { rowIndex ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            repeat(7) { colIndex ->
+                                val recordIndex = rowIndex * 7 + colIndex
+                                if (recordIndex < last28Days.size) {
+                                    QuadrantCircle(
+                                        completedHabits = last28Days[recordIndex].completedHabits,
+                                        size = 20.dp
+                                    )
+                                } else {
+                                    Spacer(modifier = Modifier.size(20.dp))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            Column {
+                Text(
+                    text = "CONSISTENCY",
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                ConsistencyGraph(history.takeLast(39))
             }
 
             ByDaySection(history, habitNames)
@@ -610,22 +698,30 @@ fun ByDaySection(history: List<DayRecord>, habitNames: List<String>) {
 }
 
 @Composable
-fun LifeLineGraph(historyData: List<DayRecord>) {
-    val points = mutableListOf<Float>()
+fun ConsistencyGraph(historyData: List<DayRecord>) {
     val windowSize = 10
     val maxPoints = 30
-    
-    for (i in 0 until (historyData.size - (windowSize - 1)).coerceAtMost(maxPoints)) {
-        val window = historyData.subList(i, i + windowSize)
-        val average = window.count { it.completedHabits.isNotEmpty() }.toFloat() / windowSize.toFloat()
-        points.add(average)
+    val rangeEnd = (historyData.size - (windowSize - 1)).coerceAtMost(maxPoints)
+    val points = (0 until rangeEnd).map { i ->
+        historyData.subList(i, i + windowSize).count { it.completedHabits.isNotEmpty() }.toFloat() / windowSize
     }
     
-    Box(
+    Row(
         modifier = Modifier
             .fillMaxWidth()
             .height(80.dp)
     ) {
+        // Y-axis labels
+        Column(
+            modifier = Modifier
+                .fillMaxHeight()
+                .padding(end = 4.dp),
+            verticalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(text = "100", color = Color.Gray, fontSize = 10.sp)
+            Text(text = "50", color = Color.Gray, fontSize = 10.sp)
+            Text(text = "0", color = Color.Gray, fontSize = 10.sp)
+        }
         Canvas(modifier = Modifier.fillMaxSize()) {
             val width = size.width
             val height = size.height
@@ -719,7 +815,7 @@ fun QuadrantCircle(completedHabits: Set<Int>, size: Dp) {
 
         // If empty, draw the opaque black slash
         if (completedHabits.isEmpty()) {
-            val strokeWidthPx = (size.toPx() / 16.dp.toPx()) * 1.5.dp.toPx()
+            val strokeWidthPx = size.toPx() * 1.5f / 16f
             val offset = radius * 0.7071f
             drawLine(
                 color = Color.Black,
@@ -775,17 +871,17 @@ fun HabitButton(
     modifier: Modifier = Modifier
 ) {
     var isEditing by remember { mutableStateOf(false) }
-    var editText by remember(name) { mutableStateOf(name) }
+    var editText by remember(name) { mutableStateOf(TextFieldValue(text = name, selection = TextRange(name.length))) }
     val focusRequester = remember { FocusRequester() }
     var hasBeenFocused by remember { mutableStateOf(false) }
 
     fun commitEdit() {
         if (!isEditing) return
-        val trimmed = editText.trim()
+        val trimmed = editText.text.trim()
         if (trimmed.isNotEmpty()) {
             onRename(index, trimmed)
         } else {
-            editText = name
+            editText = TextFieldValue(text = name, selection = TextRange(name.length))
         }
         isEditing = false
         hasBeenFocused = false
@@ -803,7 +899,10 @@ fun HabitButton(
                         onToggle(index)
                     }
                 },
-                onLongClick = { isEditing = true }
+                onLongClick = {
+                    editText = TextFieldValue(text = name, selection = TextRange(name.length))
+                    isEditing = true
+                }
             )
             .padding(16.dp),
         contentAlignment = Alignment.Center
