@@ -307,6 +307,15 @@ val habits = listOf(
     Habit("Meditate", Color(0xFF187498))   // BR
 )
 
+@Composable
+fun Modifier.noRippleClickable(enabled: Boolean = true, onClick: () -> Unit): Modifier =
+    this.clickable(
+        enabled = enabled,
+        indication = null,
+        interactionSource = remember { MutableInteractionSource() },
+        onClick = onClick
+    )
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun NoZeroDaysApp() {
@@ -374,11 +383,7 @@ fun NoZeroDaysApp() {
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(start = 32.dp, end = 32.dp, top = 64.dp)
-                    .clickable(
-                        enabled = activeIndex != history.size - 1,
-                        indication = null,
-                        interactionSource = remember { MutableInteractionSource() }
-                    ) {
+                    .noRippleClickable(enabled = activeIndex != history.size - 1) {
                         coroutineScope.launch { pagerState.animateScrollToPage(history.size - 1) }
                     }
             ) {
@@ -477,7 +482,7 @@ fun NoZeroDaysApp() {
                 Box(
                     modifier = Modifier
                         .border(1.dp, Color.White.copy(alpha = 0.4f), RoundedCornerShape(2.dp))
-                        .clickable { showStats = true }
+                        .noRippleClickable { showStats = true }
                         .padding(horizontal = 22.dp, vertical = 6.dp)
                 ) {
                     Text(
@@ -538,11 +543,19 @@ fun NoZeroDaysApp() {
                         val direction = if (rawOffset < 0f) 1f else -1f
                         val translationXPx = direction * stepsToCompress * inactiveStepReduction
 
+                        val isActive = absOffset < 0.01f
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
                                 .wrapContentSize(unbounded = true)
-                                .graphicsLayer { translationX = translationXPx },
+                                .graphicsLayer { translationX = translationXPx }
+                                .then(
+                                    if (!isActive) Modifier.noRippleClickable {
+                                        coroutineScope.launch {
+                                            pagerState.animateScrollToPage(pageIndex)
+                                        }
+                                    } else Modifier
+                                ),
                             contentAlignment = Alignment.Center
                         ) {
                             QuadrantCircle(
