@@ -15,6 +15,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.pager.HorizontalPager
@@ -47,17 +48,16 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.rememberTextMeasurer
@@ -511,6 +511,7 @@ fun NoZeroDaysApp() {
                 val endPadding = (screenWidth - startPadding - pageSize).coerceAtLeast(0.dp)
 
                 // How much to shift each successive inactive circle inward.
+                // Page center-to-center is 110.5dp, but inactive-inactive should be 76dp.
                 val inactiveStepReduction = with(density) { (pageSize - (inactiveSize + gap)).toPx() }
 
                 Box(
@@ -636,8 +637,7 @@ fun StatsScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(24.dp),
-            verticalArrangement = Arrangement.SpaceBetween,
-            horizontalAlignment = Alignment.End
+            verticalArrangement = Arrangement.SpaceBetween
         ) {
             Spacer(modifier = Modifier.height(8.dp))
 
@@ -671,6 +671,8 @@ fun StatsScreen(
                 }
             }
 
+            ByDaySection(history, habitNames)
+
             Column {
                 Text(
                     text = "LAST 4 WEEKS",
@@ -700,8 +702,6 @@ fun StatsScreen(
                     }
                 }
             }
-            ByDaySection(history, habitNames)
-
             Column {
                 Text(
                     text = "CONSISTENCY",
@@ -842,7 +842,7 @@ fun ConsistencyGraph(historyData: List<DayRecord>) {
 
             val path = Path()
             val gradientPath = Path()
-            
+
             val firstX = 0f
             val firstY = graphBottom - (points[0] * graphHeight)
             path.moveTo(firstX, firstY)
@@ -857,7 +857,7 @@ fun ConsistencyGraph(historyData: List<DayRecord>) {
 
                 val controlX1 = x1 + spacing / 2
                 val controlX2 = x2 - spacing / 2
-                
+
                 path.cubicTo(controlX1, y1, controlX2, y2, x2, y2)
                 gradientPath.cubicTo(controlX1, y1, controlX2, y2, x2, y2)
             }
