@@ -138,6 +138,9 @@ interface DayRecordDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(record: DayRecord)
 
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertAll(records: List<DayRecord>)
+
     @Update
     suspend fun update(record: DayRecord)
 
@@ -232,15 +235,25 @@ class HabitViewModel(applicationContext: Context) : ViewModel() {
         }
     }
 
-    suspend fun ensureTodayExists() {
+    suspend fun ensureAllDaysExist() {
         withContext(Dispatchers.IO) {
-            val startOfDay = LocalDate.now().atStartOfDay()
-            val endOfDay = startOfDay.plusDays(1)
+            val allRecords = dao.getAll().first()
+            val today = LocalDate.now()
 
-            val existing = dao.getRecordForRange(startOfDay, endOfDay)
-            if (existing == null) {
-                dao.insert(DayRecord(date = LocalDateTime.now(), completedHabits = emptySet()))
+            val startDate = if (allRecords.isEmpty()) today
+                            else allRecords.minOf { it.date.toLocalDate() }
+
+            val existingDates = allRecords.map { it.date.toLocalDate() }.toSet()
+
+            val missing = mutableListOf<DayRecord>()
+            var date = startDate
+            while (!date.isAfter(today)) {
+                if (!existingDates.contains(date)) {
+                    missing.add(DayRecord(date = date.atStartOfDay(), completedHabits = emptySet()))
+                }
+                date = date.plusDays(1)
             }
+            if (missing.isNotEmpty()) dao.insertAll(missing)
         }
     }
 
@@ -306,7 +319,7 @@ fun NoZeroDaysApp() {
     // Ensure we have at least one day to show (today)
     LaunchedEffect(Unit) {
         viewModel.seedDummyData() // DEBUG: Remove this line to disable dummy data
-        viewModel.ensureTodayExists()
+        viewModel.ensureAllDaysExist()
     }
 
     if (history.isEmpty()) return
