@@ -47,9 +47,11 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
@@ -58,7 +60,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
@@ -368,18 +372,78 @@ fun NoZeroDaysApp() {
             // ── 1. Header Section (Top Left) ──
             Column(
                 modifier = Modifier
-                    .padding(start = 32.dp, top = 64.dp)
-                    .clickable(enabled = activeIndex != history.size - 1) {
+                    .fillMaxWidth()
+                    .padding(start = 32.dp, end = 32.dp, top = 64.dp)
+                    .clickable(
+                        enabled = activeIndex != history.size - 1,
+                        indication = null,
+                        interactionSource = remember { MutableInteractionSource() }
+                    ) {
                         coroutineScope.launch { pagerState.animateScrollToPage(history.size - 1) }
                     }
             ) {
-                Text(
-                    text = activeDay.date.format(DateTimeFormatter.ofPattern("EEEE")),
-                    color = Color.White,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 64.sp,
-                    lineHeight = 64.sp
-                )
+                val isToday = activeDay.date.toLocalDate() == LocalDate.now()
+                val dayName = activeDay.date.format(DateTimeFormatter.ofPattern("EEEE"))
+                val textMeasurer = rememberTextMeasurer()
+                val baseStyle = TextStyle(fontWeight = FontWeight.Bold, fontSize = 64.sp)
+                // Measure "Ay" once to get stable metrics for the full 64sp size.
+                // fixedRowHeightPx locks the layout footprint; its width is the
+                // baseline for font-size shrinking.
+                val baseMetrics = remember(density) {
+                    textMeasurer.measure("Ay", baseStyle)
+                }
+                val fixedRowHeightPx = baseMetrics.size.height
+                val dayFontSize = remember(dayName, screenWidth) {
+                    val measured = textMeasurer.measure(dayName, baseStyle).size.width
+                    // Available width = screen - margins(64dp) - arrow estimate(40dp)
+                    val available = with(density) { (screenWidth - 104.dp).toPx() }
+                    if (measured > available) 64.sp * (available / measured) else 64.sp
+                }
+                Row(
+                    verticalAlignment = Alignment.Bottom,
+                    modifier = Modifier.layout { measurable, constraints ->
+                        // Measure unconstrained in height so glyphs (incl. descenders)
+                        // are never clipped, then report the fixed 64sp height to the
+                        // parent so nothing below ever shifts.
+                        val placeable = measurable.measure(
+                            constraints.copy(minHeight = 0, maxHeight = Int.MAX_VALUE)
+                        )
+                        layout(placeable.width, fixedRowHeightPx) {
+                            // Bottom-align: shift down so the content's bottom edge
+                            // lands at fixedRowHeightPx.
+                            placeable.placeRelative(0, fixedRowHeightPx - placeable.height)
+                        }
+                    }
+                ) {
+                    Text(
+                        text = dayName,
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = dayFontSize,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Clip,
+                        modifier = Modifier.weight(1f)
+                    )
+                    if (!isToday) {
+                        Text(
+                            text = "  ›",
+                            color = Color.White.copy(alpha = 0.5f),
+                            fontWeight = FontWeight.Normal,
+                            fontSize = 36.sp,
+                            modifier = Modifier.layout { measurable, constraints ->
+                                val placeable = measurable.measure(constraints)
+                                // Report fixedRowHeightPx so the Row's internal height is
+                                // always stable, and center the glyph within that space.
+                                val y = (fixedRowHeightPx - placeable.height) / 2
+                                layout(placeable.width, fixedRowHeightPx) {
+                                    placeable.placeRelative(0, y)
+                                }
+                            }
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
                 Text(
                     text = formatCurrentDate(activeDay.date),
                     color = Color(0xFFC3C3C3),
@@ -387,7 +451,6 @@ fun NoZeroDaysApp() {
                     fontWeight = FontWeight.Medium
                 )
                 Spacer(modifier = Modifier.height(12.dp))
-                val isToday = activeDay.date.toLocalDate() == LocalDate.now()
                 Text(
                     text = if (isToday) "$timeRemaining still remaining" else "This day has ended",
                     color = Color(0xFFC3C3C3),
@@ -395,30 +458,30 @@ fun NoZeroDaysApp() {
                 )
             }
 
-            Spacer(modifier = Modifier.weight(1f))
+            Spacer(modifier = Modifier.height(66.dp))
 
             // ── 2. Tagline & Stats Button ──
             Column(modifier = Modifier.padding(start = 32.dp)) {
                 Text(
                     text = buildAnnotatedString {
-                        withStyle(style = SpanStyle(color = Color(0xFFC3C3C3))) {
+                        withStyle(SpanStyle(color = Color(0xFFC3C3C3))) {
                             append("Make every day ")
                         }
-                        withStyle(style = SpanStyle(fontWeight = FontWeight.Bold, color = Color.White)) {
+                        withStyle(SpanStyle(color = Color.White, fontWeight = FontWeight.Bold)) {
                             append("count")
                         }
                     },
                     fontSize = 16.sp
                 )
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(11.dp))
                 Box(
                     modifier = Modifier
                         .border(1.dp, Color.White.copy(alpha = 0.4f), RoundedCornerShape(2.dp))
                         .clickable { showStats = true }
-                        .padding(horizontal = 24.dp, vertical = 8.dp)
+                        .padding(horizontal = 22.dp, vertical = 6.dp)
                 ) {
                     Text(
-                        text = "Stats",
+                        text = "stats",
                         color = Color.White,
                         fontWeight = FontWeight.Bold,
                         fontSize = 16.sp
@@ -426,24 +489,23 @@ fun NoZeroDaysApp() {
                 }
             }
 
-            Spacer(modifier = Modifier.height(41.dp))
+            Spacer(modifier = Modifier.weight(1.618f))
 
             // ── 3. Horizontal Timeline ──
-            // Page slot sized so active circle (105dp) has a 40dp gap to its
-            // immediate inactive neighbor (36dp). Inactive circles are then
+            // Page slot sized so active circle (151dp) has a 41dp gap to its
+            // immediate inactive neighbor (52dp). Inactive circles are then
             // shifted inward with graphicsLayer so their edge-to-edge gap is
-            // also 40dp (center-to-center 76dp instead of 110.5dp).
+            // also 41dp.
             run {
-                val activeSize = 105.dp
-                val inactiveSize = 36.dp
+                val activeSize = 151.dp
+                val inactiveSize = 52.dp
                 val gap = 41.dp
-                val pageSize = (activeSize / 2) + gap + (inactiveSize / 2) // 110.5dp
-                val activeCenterX = screenWidth - 36.dp - (activeSize / 2)
+                val pageSize = (activeSize / 2) + gap + (inactiveSize / 2) // 143.5dp
+                val activeCenterX = screenWidth / 2
                 val startPadding = activeCenterX - (pageSize / 2)
                 val endPadding = (screenWidth - startPadding - pageSize).coerceAtLeast(0.dp)
 
                 // How much to shift each successive inactive circle inward.
-                // Page center-to-center is 110.5dp, but inactive-inactive should be 76dp.
                 val inactiveStepReduction = with(density) { (pageSize - (inactiveSize + gap)).toPx() }
 
                 Box(
@@ -469,9 +531,9 @@ fun NoZeroDaysApp() {
                         val circleSize = lerp(activeSize, inactiveSize, absOffset)
 
                         // Shift inactive pages inward so their spacing compresses
-                        // from 110.5dp to 76dp center-to-center. Pages at distance 1
-                        // (immediate neighbor) need no shift. Each page beyond that
-                        // shifts by inactiveStepReduction toward the active page.
+                        // to maintain 41dp edge-to-edge gaps between inactive circles.
+                        // Pages at distance 1 (immediate neighbor) need no shift. Each
+                        // page beyond that shifts by inactiveStepReduction toward the active page.
                         val stepsToCompress = (abs(rawOffset) - 1f).coerceAtLeast(0f)
                         val direction = if (rawOffset < 0f) 1f else -1f
                         val translationXPx = direction * stepsToCompress * inactiveStepReduction
@@ -492,7 +554,7 @@ fun NoZeroDaysApp() {
                 }
             }
 
-            Spacer(modifier = Modifier.height(36.dp))
+            Spacer(modifier = Modifier.weight(1f))
 
             // ── 4. Habit Grid (Fixed at Bottom) ──
             HabitGrid(
