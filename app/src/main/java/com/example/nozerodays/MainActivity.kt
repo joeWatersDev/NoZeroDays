@@ -3,6 +3,7 @@ package com.example.nozerodays
 import android.content.Context
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.core.view.WindowCompat
 import androidx.compose.animation.AnimatedVisibility
@@ -535,6 +536,8 @@ fun StatsScreen(
 
     var verticalDragAmount by remember { mutableStateOf(0f) }
 
+    BackHandler { onClose() }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -558,7 +561,8 @@ fun StatsScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(24.dp),
-            verticalArrangement = Arrangement.SpaceBetween
+            verticalArrangement = Arrangement.SpaceBetween,
+            horizontalAlignment = Alignment.End
         ) {
             Spacer(modifier = Modifier.height(8.dp))
 
@@ -621,6 +625,8 @@ fun StatsScreen(
                     }
                 }
             }
+            ByDaySection(history, habitNames)
+
             Column {
                 Text(
                     text = "CONSISTENCY",
@@ -629,10 +635,8 @@ fun StatsScreen(
                     fontSize = 14.sp
                 )
                 Spacer(modifier = Modifier.height(8.dp))
-                ConsistencyGraph(history.takeLast(39))
+                ConsistencyGraph(history.takeLast(28))
             }
-
-            ByDaySection(history, habitNames)
             
             Spacer(modifier = Modifier.height(8.dp))
         }
@@ -712,8 +716,8 @@ fun ByDaySection(history: List<DayRecord>, habitNames: List<String>) {
 
 @Composable
 fun ConsistencyGraph(historyData: List<DayRecord>) {
-    val windowSize = 10
-    val maxPoints = 30
+    val windowSize = 7
+    val maxPoints = 22
     val rangeEnd = (historyData.size - (windowSize - 1)).coerceAtMost(maxPoints)
     val points = (0 until rangeEnd).map { i ->
         historyData.subList(i, i + windowSize).count { it.completedHabits.isNotEmpty() }.toFloat() / windowSize
@@ -729,7 +733,8 @@ fun ConsistencyGraph(historyData: List<DayRecord>) {
             modifier = Modifier
                 .fillMaxHeight()
                 .padding(end = 4.dp),
-            verticalArrangement = Arrangement.SpaceBetween
+            verticalArrangement = Arrangement.SpaceBetween,
+            horizontalAlignment = Alignment.End
         ) {
             Text(text = "100", color = Color.Gray, fontSize = 10.sp)
             Text(text = "50", color = Color.Gray, fontSize = 10.sp)
@@ -738,11 +743,18 @@ fun ConsistencyGraph(historyData: List<DayRecord>) {
         Canvas(modifier = Modifier.fillMaxSize()) {
             val width = size.width
             val height = size.height
+            // Inset the drawing range so the top/bottom grid lines align with the
+            // vertical centres of the "100" and "0" text labels (which SpaceBetween
+            // places ~half a line-height away from the column edges).
+            val vPad = 6.dp.toPx()
+            val graphTop = vPad
+            val graphBottom = height - vPad
+            val graphHeight = graphBottom - graphTop
             val spacing = if (points.size > 1) width / (points.size - 1) else 0f
 
             val lines = 4
             for (i in 0..lines) {
-                val y = height - (i * height / lines)
+                val y = graphBottom - (i * graphHeight / lines)
                 drawLine(
                     color = Color.White.copy(alpha = 0.05f),
                     start = Offset(0f, y),
@@ -757,25 +769,25 @@ fun ConsistencyGraph(historyData: List<DayRecord>) {
             val gradientPath = Path()
             
             val firstX = 0f
-            val firstY = height - (points[0] * height)
+            val firstY = graphBottom - (points[0] * graphHeight)
             path.moveTo(firstX, firstY)
-            gradientPath.moveTo(firstX, height)
+            gradientPath.moveTo(firstX, graphBottom)
             gradientPath.lineTo(firstX, firstY)
 
             for (i in 0 until points.size - 1) {
                 val x1 = i * spacing
-                val y1 = height - (points[i] * height)
+                val y1 = graphBottom - (points[i] * graphHeight)
                 val x2 = (i + 1) * spacing
-                val y2 = height - (points[i+1] * height)
-                
+                val y2 = graphBottom - (points[i + 1] * graphHeight)
+
                 val controlX1 = x1 + spacing / 2
                 val controlX2 = x2 - spacing / 2
                 
                 path.cubicTo(controlX1, y1, controlX2, y2, x2, y2)
                 gradientPath.cubicTo(controlX1, y1, controlX2, y2, x2, y2)
             }
-            
-            gradientPath.lineTo(width, height)
+
+            gradientPath.lineTo(width, graphBottom)
             gradientPath.close()
 
             val green = Color(0xFF33B679)
@@ -783,8 +795,8 @@ fun ConsistencyGraph(historyData: List<DayRecord>) {
                 path = path,
                 brush = Brush.verticalGradient(
                     colors = listOf(green, green.copy(alpha = 0.2f)),
-                    startY = 0f,
-                    endY = height
+                    startY = graphTop,
+                    endY = graphBottom
                 ),
                 style = Stroke(width = 2.dp.toPx())
             )
@@ -793,8 +805,8 @@ fun ConsistencyGraph(historyData: List<DayRecord>) {
                 path = gradientPath,
                 brush = Brush.verticalGradient(
                     colors = listOf(green.copy(alpha = 0.2f), Color.Transparent),
-                    startY = 0f,
-                    endY = height
+                    startY = graphTop,
+                    endY = graphBottom
                 )
             )
         }
