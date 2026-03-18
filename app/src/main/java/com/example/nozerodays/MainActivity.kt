@@ -90,7 +90,6 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 import java.util.UUID
 import kotlin.math.abs
-import kotlin.random.Random
 
 // --- Persistence Layer ---
 
@@ -262,74 +261,6 @@ class HabitViewModel(applicationContext: Context) : ViewModel() {
             if (missing.isNotEmpty()) dao.insertAll(missing)
         }
     }
-
-    // ┌──────────────────────────────────────────────────────────┐
-    // │  DEBUG: Remove this entire block to disable dummy data   │
-    // └──────────────────────────────────────────────────────────┘
-    suspend fun seedDummyData() {
-        withContext(Dispatchers.IO) {
-            val existing = dao.getAll().first()
-            val existingDates = existing.map { it.date.toLocalDate() }.toSet()
-
-            // Seed recent dummy data if DB is nearly empty
-            if (existing.size <= 2) {
-                val rng = Random(42) // Fixed seed for reproducible data
-                val today = LocalDate.now()
-                for (i in 24 downTo 1) {
-                    val date = today.minusDays(i.toLong()).atTime(12, 0)
-                    val habits = (0..3).filter { rng.nextFloat() > 0.4f }.toSet()
-                    dao.insert(DayRecord(date = date, completedHabits = habits))
-                }
-            }
-
-            // Always ensure the 2023 test record exists
-            val testDate = LocalDate.of(2023, 6, 15)
-            if (!existingDates.contains(testDate)) {
-                dao.insert(DayRecord(date = testDate.atTime(12, 0), completedHabits = setOf(0, 2)))
-            }
-
-            val existingByDate = existing.associateBy { it.date.toLocalDate() }
-
-            // Seed full 2025 data — update empty records that ensureAllDaysExist backfilled
-            val rng2025 = Random(99)
-            var date2025 = LocalDate.of(2025, 1, 1)
-            val end2025 = LocalDate.of(2025, 12, 31)
-            while (!date2025.isAfter(end2025)) {
-                val habits = if (rng2025.nextFloat() < 0.25f) {
-                    emptySet()
-                } else {
-                    (0..3).filter { rng2025.nextFloat() > 0.3f }.toSet()
-                }
-                val existing2025 = existingByDate[date2025]
-                if (existing2025 != null && existing2025.completedHabits.isEmpty()) {
-                    dao.update(existing2025.copy(completedHabits = habits))
-                } else if (existing2025 == null) {
-                    dao.insert(DayRecord(date = date2025.atTime(12, 0), completedHabits = habits))
-                }
-                date2025 = date2025.plusDays(1)
-            }
-
-            // Seed 2026 data up to March 18
-            val rng2026 = Random(77)
-            var date2026 = LocalDate.of(2026, 1, 1)
-            val end2026 = LocalDate.of(2026, 3, 18)
-            while (!date2026.isAfter(end2026)) {
-                val habits = if (rng2026.nextFloat() < 0.25f) {
-                    emptySet()
-                } else {
-                    (0..3).filter { rng2026.nextFloat() > 0.3f }.toSet()
-                }
-                val existing2026 = existingByDate[date2026]
-                if (existing2026 != null && existing2026.completedHabits.isEmpty()) {
-                    dao.update(existing2026.copy(completedHabits = habits))
-                } else if (existing2026 == null) {
-                    dao.insert(DayRecord(date = date2026.atTime(12, 0), completedHabits = habits))
-                }
-                date2026 = date2026.plusDays(1)
-            }
-        }
-    }
-    // ── END DEBUG BLOCK ──
 }
 
 // --- UI Layer ---
@@ -381,7 +312,6 @@ fun NoZeroDaysApp() {
 
     // Ensure we have at least one day to show (today)
     LaunchedEffect(Unit) {
-        viewModel.seedDummyData() // DEBUG: Remove this line to disable dummy data
         viewModel.ensureAllDaysExist()
     }
 
