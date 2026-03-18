@@ -74,6 +74,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.room.*
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import com.example.nozerodays.ui.theme.DMSansFontFamily
 import com.example.nozerodays.ui.theme.NoZeroDaysTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -287,20 +288,44 @@ class HabitViewModel(applicationContext: Context) : ViewModel() {
                 dao.insert(DayRecord(date = testDate.atTime(12, 0), completedHabits = setOf(0, 2)))
             }
 
-            // Seed full 2025 data if not already present
+            val existingByDate = existing.associateBy { it.date.toLocalDate() }
+
+            // Seed full 2025 data — update empty records that ensureAllDaysExist backfilled
             val rng2025 = Random(99)
             var date2025 = LocalDate.of(2025, 1, 1)
             val end2025 = LocalDate.of(2025, 12, 31)
             while (!date2025.isAfter(end2025)) {
-                if (!existingDates.contains(date2025)) {
-                    val habits = if (rng2025.nextFloat() < 0.25f) {
-                        emptySet()
-                    } else {
-                        (0..3).filter { rng2025.nextFloat() > 0.3f }.toSet()
-                    }
+                val habits = if (rng2025.nextFloat() < 0.25f) {
+                    emptySet()
+                } else {
+                    (0..3).filter { rng2025.nextFloat() > 0.3f }.toSet()
+                }
+                val existing2025 = existingByDate[date2025]
+                if (existing2025 != null && existing2025.completedHabits.isEmpty()) {
+                    dao.update(existing2025.copy(completedHabits = habits))
+                } else if (existing2025 == null) {
                     dao.insert(DayRecord(date = date2025.atTime(12, 0), completedHabits = habits))
                 }
                 date2025 = date2025.plusDays(1)
+            }
+
+            // Seed 2026 data up to March 18
+            val rng2026 = Random(77)
+            var date2026 = LocalDate.of(2026, 1, 1)
+            val end2026 = LocalDate.of(2026, 3, 18)
+            while (!date2026.isAfter(end2026)) {
+                val habits = if (rng2026.nextFloat() < 0.25f) {
+                    emptySet()
+                } else {
+                    (0..3).filter { rng2026.nextFloat() > 0.3f }.toSet()
+                }
+                val existing2026 = existingByDate[date2026]
+                if (existing2026 != null && existing2026.completedHabits.isEmpty()) {
+                    dao.update(existing2026.copy(completedHabits = habits))
+                } else if (existing2026 == null) {
+                    dao.insert(DayRecord(date = date2026.atTime(12, 0), completedHabits = habits))
+                }
+                date2026 = date2026.plusDays(1)
             }
         }
     }
@@ -414,7 +439,7 @@ fun NoZeroDaysApp() {
                 val isToday = activeDay.date.toLocalDate() == LocalDate.now()
                 val dayName = activeDay.date.format(DateTimeFormatter.ofPattern("EEEE"))
                 val textMeasurer = rememberTextMeasurer()
-                val baseStyle = TextStyle(fontWeight = FontWeight.Bold, fontSize = 64.sp)
+                val baseStyle = TextStyle(fontFamily = DMSansFontFamily, fontWeight = FontWeight.Bold, fontSize = 64.sp)
                 // Measure "Ay" once to get stable metrics for the full 64sp size.
                 // fixedRowHeightPx locks the layout footprint; its width is the
                 // baseline for font-size shrinking.
@@ -472,18 +497,19 @@ fun NoZeroDaysApp() {
                         )
                     }
                 }
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(7.dp))
                 Text(
                     text = formatCurrentDate(activeDay.date),
                     color = Color(0xFFC3C3C3),
                     fontSize = 24.sp,
-                    fontWeight = FontWeight.Medium
+                    fontWeight = FontWeight.SemiBold
                 )
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(11.dp))
                 Text(
                     text = if (isToday) "$timeRemaining still remaining" else "This day has ended",
                     color = Color(0xFFC3C3C3),
-                    fontSize = 18.sp
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Medium
                 )
             }
 
@@ -493,7 +519,7 @@ fun NoZeroDaysApp() {
             Column(modifier = Modifier.padding(start = 32.dp)) {
                 Text(
                     text = buildAnnotatedString {
-                        withStyle(SpanStyle(color = Color(0xFFC3C3C3))) {
+                        withStyle(SpanStyle(color = Color(0xFFC3C3C3), fontWeight = FontWeight.Medium)) {
                             append("Make every day ")
                         }
                         withStyle(SpanStyle(color = Color.White, fontWeight = FontWeight.Bold)) {
@@ -688,7 +714,8 @@ fun StatsScreen(
                             Text(
                                 text = habitNames[index],
                                 color = Color.Gray,
-                                fontSize = 14.sp
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Medium
                             )
                         }
                     }
