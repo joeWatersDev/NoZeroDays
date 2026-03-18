@@ -1,0 +1,51 @@
+╔══════════════════════════════════════════════════════════════╗
+║              NO ZERO DAYS — PLAY STORE LAUNCH TODO           ║
+╚══════════════════════════════════════════════════════════════╝
+
+────────────────────────────────────────
+ 1. CODE CLEANUP  (do before release)
+────────────────────────────────────────
+ [x] Remove seedDummyData() function and its call in LaunchedEffect
+ [x] Double-check there are no other debug logs or test code left in
+
+
+────────────────────────────────────────
+ 2. PLAY STORE REQUIREMENTS
+────────────────────────────────────────
+ [ ] Signing
+       Generate a release keystore via:
+       Android Studio → Build → Generate Signed Bundle/APK
+       ⚠ Keep the keystore file and credentials somewhere safe.
+          Losing it means you can never update the app.
+
+ [ ] App Bundle
+       Build a release AAB (.aab) — the Play Store requires AAB, not APK.
+       Save it in the play_store/ folder (excluded from git).
+
+ [x] App ID
+       Changed applicationId to com.joelast.nozerodays
+
+ [x] Version code/name
+       versionCode = 1, versionName = "1.0" — confirmed in build.gradle.kts
+
+
+────────────────────────────────────────
+ 3. PLAY STORE ASSETS
+────────────────────────────────────────
+ [ ] App icon — high-res 512×512 PNG
+ [x] Screenshots — at least 2 per device type (have 4 from art/ folder)
+ [ ] Short description — max 80 characters
+ [ ] Full description
+ [ ] Privacy policy URL
+       Required even for apps that don't collect user data.
+ [ ] Content rating questionnaire
+
+
+────────────────────────────────────────
+ 4. GOOGLE PLAY CONSOLE
+────────────────────────────────────────
+ [ ] Pay one-time $25 developer registration fee
+ [ ] Create the app listing
+ [ ] Fill out content rating questionnaire
+ [ ] Fill out target audience form
+ [ ] Fill out data safety form

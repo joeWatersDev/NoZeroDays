@@ -10,7 +10,7 @@ android {
     compileSdk = 36 // Updated to meet dependency requirements
 
     defaultConfig {
-        applicationId = "com.example.nozerodays"
+        applicationId = "com.joelast.nozerodays"
         minSdk = 27
         targetSdk = 36 // Updated to align with compileSdk
         versionCode = 1

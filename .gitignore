@@ -13,3 +13,10 @@
 .externalNativeBuild
 .cxx
 local.properties
+
+# Play Store release artifacts — never commit these
+*.aab
+*.apk
+*.jks
+*.keystore
+*.pepk
