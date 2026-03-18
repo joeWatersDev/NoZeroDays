@@ -16,6 +16,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.pager.HorizontalPager
@@ -24,7 +25,6 @@ import androidx.compose.foundation.pager.PagerSnapDistance
 import androidx.compose.foundation.pager.PageSize
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.ui.unit.lerp
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
@@ -671,7 +671,7 @@ fun StatsScreen(
                 }
             }
 
-            ByDaySection(history, habitNames)
+            ThisYearSection(history, habitNames)
 
             Column {
                 Text(
@@ -719,69 +719,87 @@ fun StatsScreen(
 }
 
 @Composable
-fun ByDaySection(history: List<DayRecord>, habitNames: List<String>) {
-    val daysOfWeek = listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
-    val habitDayCounts = Array(4) { IntArray(7) }
+fun ThisYearSection(history: List<DayRecord>, habitNames: List<String>) {
+    val currentYear = LocalDate.now().year
+    var yearOffset by remember { mutableStateOf(0) }
+    val displayYear = currentYear + yearOffset
 
-    history.forEach { record ->
-        val dayIndex = record.date.dayOfWeek.value - 1
-        record.completedHabits.forEach { habitIndex ->
-            if (habitIndex in 0..3) {
-                habitDayCounts[habitIndex][dayIndex]++
-            }
+    val yearCounts = IntArray(4) { habitIndex ->
+        history.count { record ->
+            record.date.year == displayYear && record.completedHabits.contains(habitIndex)
         }
     }
 
-    Column(modifier = Modifier.fillMaxWidth()) {
-        Text(
-            text = "BY DAY",
-            color = Color.White,
-            fontWeight = FontWeight.Bold,
-            fontSize = 14.sp
-        )
-        Spacer(modifier = Modifier.height(12.dp))
-        
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Spacer(modifier = Modifier.width(60.dp))
-            daysOfWeek.forEach { day ->
+    var horizontalDragAmount by remember { mutableStateOf(0f) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .pointerInput(Unit) {
+                detectHorizontalDragGestures(
+                    onDragEnd = {
+                        if (horizontalDragAmount > 80f) {
+                            yearOffset--
+                        } else if (horizontalDragAmount < -80f && yearOffset < 0) {
+                            yearOffset++
+                        }
+                        horizontalDragAmount = 0f
+                    },
+                    onHorizontalDrag = { _, dragAmount ->
+                        horizontalDragAmount += dragAmount
+                    }
+                )
+            }
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = "<",
+                color = Color.Gray,
+                fontWeight = FontWeight.Bold,
+                fontSize = 14.sp,
+                modifier = Modifier.clickable(
+                    indication = null,
+                    interactionSource = remember { MutableInteractionSource() }
+                ) { yearOffset-- }
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = if (yearOffset == 0) "THIS YEAR" else displayYear.toString(),
+                color = Color.White,
+                fontWeight = FontWeight.Bold,
+                fontSize = 14.sp
+            )
+            if (yearOffset < 0) {
+                Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = day,
+                    text = ">",
                     color = Color.Gray,
-                    fontSize = 10.sp,
-                    modifier = Modifier.weight(1f),
-                    textAlign = TextAlign.Center
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp,
+                    modifier = Modifier.clickable(
+                        indication = null,
+                        interactionSource = remember { MutableInteractionSource() }
+                    ) { yearOffset++ }
                 )
             }
         }
-        
-        Spacer(modifier = Modifier.height(4.dp))
-        
-        habitNames.forEachIndexed { habitIndex, name ->
-            val habitColor = habits[habitIndex].color
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 2.dp)
-                    .background(habitColor.copy(alpha = 0.1f), CircleShape)
-                    .padding(horizontal = 8.dp, vertical = 2.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = name,
-                    color = habitColor,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.width(60.dp)
-                )
-                
-                repeat(7) { dayIndex ->
+        Spacer(modifier = Modifier.height(8.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            yearCounts.forEachIndexed { index, count ->
+                Column(horizontalAlignment = Alignment.Start) {
                     Text(
-                        text = habitDayCounts[habitIndex][dayIndex].toString(),
-                        color = Color.White,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.weight(1f),
-                        textAlign = TextAlign.Center
+                        text = count.toString(),
+                        color = habits[index].color,
+                        fontSize = 24.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = habitNames[index],
+                        color = Color.Gray,
+                        fontSize = 12.sp
                     )
                 }
             }
