@@ -18,7 +18,7 @@
 
 ## About
 
-No Zero Days is a distraction-free habit tracker built around one idea: **don't let a day go to zero**.
+No Zero Days is a distraction-free habit tracker built around one idea: **don't let a day be a zero**.
 
 Inspired by the [No Zero Days philosophy](https://www.reddit.com/r/NonZeroDay/comments/1qbxvz/), the app encourages you to do at least something toward each of your habits every single day — no matter how small. There are no streaks to obsess over, no notifications demanding your attention, and no social features competing for your focus. Just four habits, a clean interface, and a record of your effort.
 
@@ -34,18 +34,15 @@ Inspired by the [No Zero Days philosophy](https://www.reddit.com/r/NonZeroDay/co
   - **Total Counts** — how many times each habit has been completed across all recorded history.
   - **Last 4 Weeks** — a 4×7 grid of quadrant circles giving a visual overview of the past 28 days.
   - **Consistency** — a rolling 10-day average graph showing how often you completed at least one habit, plotted over the last ~30 data points.
-  - **By Day** — a breakdown of each habit's completion count grouped by day of the week, so you can spot patterns in when you're most consistent.
+  - **This Year** — habit counts for the current calendar year. Swipe right to browse previous years.
 
 ---
 
 ## Screenshots
 
-<!-- Add screenshots here once available -->
-<!-- | Main Screen | Stats Screen | -->
-<!-- |---|---| -->
-<!-- | ![Main](docs/screenshot_main.png) | ![Stats](docs/screenshot_stats.png) | -->
-
-*Screenshots coming soon*
+| Main Screen | Stats Screen |
+|---|---|
+| ![Main](art/Screenshot_20260318_161752.png) | ![Stats](art/Screenshot_20260318_161810.png) |
 
 ---
 
