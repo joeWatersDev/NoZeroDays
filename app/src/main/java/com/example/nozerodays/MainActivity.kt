@@ -267,16 +267,24 @@ class HabitViewModel(applicationContext: Context) : ViewModel() {
     // └──────────────────────────────────────────────────────────┘
     suspend fun seedDummyData() {
         withContext(Dispatchers.IO) {
-            // Only seed if DB has fewer than 2 records (just today)
             val existing = dao.getAll().first()
-            if (existing.size > 2) return@withContext
+            val existingDates = existing.map { it.date.toLocalDate() }.toSet()
 
-            val rng = Random(42) // Fixed seed for reproducible data
-            val today = LocalDate.now()
-            for (i in 24 downTo 1) {
-                val date = today.minusDays(i.toLong()).atTime(12, 0)
-                val habits = (0..3).filter { rng.nextFloat() > 0.4f }.toSet()
-                dao.insert(DayRecord(date = date, completedHabits = habits))
+            // Seed recent dummy data if DB is nearly empty
+            if (existing.size <= 2) {
+                val rng = Random(42) // Fixed seed for reproducible data
+                val today = LocalDate.now()
+                for (i in 24 downTo 1) {
+                    val date = today.minusDays(i.toLong()).atTime(12, 0)
+                    val habits = (0..3).filter { rng.nextFloat() > 0.4f }.toSet()
+                    dao.insert(DayRecord(date = date, completedHabits = habits))
+                }
+            }
+
+            // Always ensure the 2023 test record exists
+            val testDate = LocalDate.of(2023, 6, 15)
+            if (!existingDates.contains(testDate)) {
+                dao.insert(DayRecord(date = testDate.atTime(12, 0), completedHabits = setOf(0, 2)))
             }
         }
     }
@@ -721,6 +729,9 @@ fun StatsScreen(
 @Composable
 fun ThisYearSection(history: List<DayRecord>, habitNames: List<String>) {
     val currentYear = LocalDate.now().year
+    val firstYear = history.filter { it.completedHabits.isNotEmpty() }
+        .minOfOrNull { it.date.year } ?: currentYear
+    val minOffset = firstYear - currentYear
     var yearOffset by remember { mutableStateOf(0) }
     val displayYear = currentYear + yearOffset
 
@@ -738,7 +749,7 @@ fun ThisYearSection(history: List<DayRecord>, habitNames: List<String>) {
             .pointerInput(Unit) {
                 detectHorizontalDragGestures(
                     onDragEnd = {
-                        if (horizontalDragAmount > 80f) {
+                        if (horizontalDragAmount > 80f && yearOffset > minOffset) {
                             yearOffset--
                         } else if (horizontalDragAmount < -80f && yearOffset < 0) {
                             yearOffset++
@@ -752,17 +763,19 @@ fun ThisYearSection(history: List<DayRecord>, habitNames: List<String>) {
             }
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                text = "<",
-                color = Color.Gray,
-                fontWeight = FontWeight.Bold,
-                fontSize = 14.sp,
-                modifier = Modifier.clickable(
-                    indication = null,
-                    interactionSource = remember { MutableInteractionSource() }
-                ) { yearOffset-- }
-            )
-            Spacer(modifier = Modifier.width(8.dp))
+            if (yearOffset > minOffset) {
+                Text(
+                    text = "<",
+                    color = Color.Gray,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp,
+                    modifier = Modifier.clickable(
+                        indication = null,
+                        interactionSource = remember { MutableInteractionSource() }
+                    ) { yearOffset-- }
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+            }
             Text(
                 text = if (yearOffset == 0) "THIS YEAR" else displayYear.toString(),
                 color = Color.White,
