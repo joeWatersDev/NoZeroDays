@@ -32,9 +32,9 @@ Inspired by the [No Zero Days philosophy](https://www.reddit.com/r/NonZeroDay/co
 - **Jump back to today** — While viewing a past day, tap the day/date text in the header to instantly scroll back to today.
 - **View your stats** — Tap the **Stats** button to open the stats screen. Swipe up to dismiss it. The stats screen shows:
   - **Total Counts** — how many times each habit has been completed across all recorded history.
-  - **Last 4 Weeks** — a 4×7 grid of quadrant circles giving a visual overview of the past 28 days.
-  - **Consistency** — a rolling 10-day average graph showing how often you completed at least one habit, plotted over the last ~30 data points.
   - **This Year** — habit counts for the current calendar year. Swipe right to browse previous years.
+  - **Last 4 Weeks** — a 4×7 grid of quadrant circles giving a visual overview of the past 28 days.
+  - **Consistency** — a rolling 7-day average graph showing how often you completed at least one habit, plotted over the last 4 weeks of data points.
 
 ---
 
