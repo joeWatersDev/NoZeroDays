@@ -987,6 +987,12 @@ fun HabitButton(
         hasBeenFocused = false
     }
 
+    val density = LocalDensity.current
+    val imeVisible = WindowInsets.ime.getBottom(density) > 0
+    LaunchedEffect(imeVisible) {
+        if (!imeVisible && isEditing) commitEdit()
+    }
+
     Box(
         modifier = modifier
             .fillMaxHeight()
