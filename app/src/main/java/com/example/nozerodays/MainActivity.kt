@@ -912,11 +912,7 @@ fun QuadrantCircle(completedHabits: Set<Int>, size: Dp) {
         // Use strictly radius from size to ensure uniform growth
         val radius = size.toPx() / 2f
         
-        // Mask with black background circle
-        drawCircle(color = Color.Black, radius = radius)
-        
-        // Background translucent circle
-        drawCircle(color = Color.White.copy(alpha = 0.1f), radius = radius)
+        drawCircle(color = Color(0xFF242424), radius = radius)
 
         habits.forEachIndexed { index, habit ->
             if (completedHabits.contains(index)) {
@@ -992,7 +988,6 @@ fun HabitButton(
     var editText by remember(name) { mutableStateOf(TextFieldValue(text = name, selection = TextRange(name.length))) }
     val focusRequester = remember { FocusRequester() }
     var hasBeenFocused by remember { mutableStateOf(false) }
-
     fun commitEdit() {
         if (!isEditing) return
         val trimmed = editText.text.trim()
