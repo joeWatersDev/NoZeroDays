@@ -286,6 +286,22 @@ class HabitViewModel(applicationContext: Context) : ViewModel() {
             if (!existingDates.contains(testDate)) {
                 dao.insert(DayRecord(date = testDate.atTime(12, 0), completedHabits = setOf(0, 2)))
             }
+
+            // Seed full 2025 data if not already present
+            val rng2025 = Random(99)
+            var date2025 = LocalDate.of(2025, 1, 1)
+            val end2025 = LocalDate.of(2025, 12, 31)
+            while (!date2025.isAfter(end2025)) {
+                if (!existingDates.contains(date2025)) {
+                    val habits = if (rng2025.nextFloat() < 0.25f) {
+                        emptySet()
+                    } else {
+                        (0..3).filter { rng2025.nextFloat() > 0.3f }.toSet()
+                    }
+                    dao.insert(DayRecord(date = date2025.atTime(12, 0), completedHabits = habits))
+                }
+                date2025 = date2025.plusDays(1)
+            }
         }
     }
     // ── END DEBUG BLOCK ──
@@ -654,7 +670,7 @@ fun StatsScreen(
                     text = "TOTAL COUNTS",
                     color = Color.White,
                     fontWeight = FontWeight.Bold,
-                    fontSize = 14.sp
+                    fontSize = 16.sp
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Row(
@@ -666,13 +682,13 @@ fun StatsScreen(
                             Text(
                                 text = count.toString(),
                                 color = habits[index].color,
-                                fontSize = 24.sp,
+                                fontSize = 28.sp,
                                 fontWeight = FontWeight.Bold
                             )
                             Text(
                                 text = habitNames[index],
                                 color = Color.Gray,
-                                fontSize = 12.sp
+                                fontSize = 14.sp
                             )
                         }
                     }
@@ -686,7 +702,7 @@ fun StatsScreen(
                     text = "LAST 4 WEEKS",
                     color = Color.White,
                     fontWeight = FontWeight.Bold,
-                    fontSize = 14.sp
+                    fontSize = 16.sp
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -715,7 +731,7 @@ fun StatsScreen(
                     text = "CONSISTENCY",
                     color = Color.White,
                     fontWeight = FontWeight.Bold,
-                    fontSize = 14.sp
+                    fontSize = 16.sp
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 ConsistencyGraph(history.takeLast(28))
@@ -768,7 +784,7 @@ fun ThisYearSection(history: List<DayRecord>, habitNames: List<String>) {
                     text = "<",
                     color = Color.Gray,
                     fontWeight = FontWeight.Bold,
-                    fontSize = 14.sp,
+                    fontSize = 16.sp,
                     modifier = Modifier.clickable(
                         indication = null,
                         interactionSource = remember { MutableInteractionSource() }
@@ -780,7 +796,7 @@ fun ThisYearSection(history: List<DayRecord>, habitNames: List<String>) {
                 text = if (yearOffset == 0) "THIS YEAR" else displayYear.toString(),
                 color = Color.White,
                 fontWeight = FontWeight.Bold,
-                fontSize = 14.sp
+                fontSize = 16.sp
             )
             if (yearOffset < 0) {
                 Spacer(modifier = Modifier.width(8.dp))
@@ -788,7 +804,7 @@ fun ThisYearSection(history: List<DayRecord>, habitNames: List<String>) {
                     text = ">",
                     color = Color.Gray,
                     fontWeight = FontWeight.Bold,
-                    fontSize = 14.sp,
+                    fontSize = 16.sp,
                     modifier = Modifier.clickable(
                         indication = null,
                         interactionSource = remember { MutableInteractionSource() }
@@ -806,13 +822,13 @@ fun ThisYearSection(history: List<DayRecord>, habitNames: List<String>) {
                     Text(
                         text = count.toString(),
                         color = habits[index].color,
-                        fontSize = 24.sp,
+                        fontSize = 32.sp,
                         fontWeight = FontWeight.Bold
                     )
                     Text(
                         text = habitNames[index],
                         color = Color.Gray,
-                        fontSize = 12.sp
+                        fontSize = 14.sp
                     )
                 }
             }
