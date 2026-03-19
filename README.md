@@ -3,7 +3,7 @@
 <!-- Replace with your banner image: -->
 <!-- ![No Zero Days Banner](docs/banner.png) -->
 
-# No Zero Days
+# <img src="art/iconv3.png" width="48" height="48" style="vertical-align:middle;" /> No Zero Days
 
 **A minimal habit tracker for Android**
 
@@ -47,5 +47,5 @@ Inspired by the [No Zero Days philosophy](https://www.reddit.com/r/NonZeroDay/co
 ---
 
 <div align="center">
-  <sub>Built with Jetpack Compose · Room · MVVM</sub>
+  <sub>Built with Jetpack Compose · Room · MVVM · Claude Code</sub>
 </div>
