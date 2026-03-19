@@ -32,11 +32,11 @@
 ────────────────────────────────────────
  3. PLAY STORE ASSETS
 ────────────────────────────────────────
- [ ] App icon — high-res 512×512 PNG
+ [x] App icon — high-res 512×512 PNG
  [x] Screenshots — at least 2 per device type (have 4 from art/ folder)
- [ ] Short description — max 80 characters
- [ ] Full description
- [ ] Privacy policy URL
+ [x] Short description — max 80 characters
+ [x] Full description
+ [x] Privacy policy URL (https://joewatersdev.github.io/NoZeroDays/privacy)
        Required even for apps that don't collect user data.
  [ ] Content rating questionnaire
 
