@@ -3,7 +3,12 @@
 <!-- Replace with your banner image: -->
 <!-- ![No Zero Days Banner](docs/banner.png) -->
 
-# <img src="art/iconv3.png" width="48" height="48" style="vertical-align:middle;" /> No Zero Days
+<table border="0" cellpadding="0" cellspacing="0">
+  <tr>
+    <td valign="middle"><img src="art/iconv3.png" width="96" height="96" /></td>
+    <td valign="middle"><h1>&nbsp; No Zero Days</h1></td>
+  </tr>
+</table>
 
 **A minimal habit tracker for Android**
 
