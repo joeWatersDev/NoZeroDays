@@ -14,7 +14,8 @@
 .cxx
 local.properties
 
-# Play Store release artifacts — never commit these
+# Play Store assets and release artifacts — never commit these
+play_store/
 *.aab
 *.apk
 *.jks
