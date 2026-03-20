@@ -53,6 +53,7 @@ import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
@@ -68,6 +69,8 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -203,7 +206,7 @@ class HabitViewModel(applicationContext: Context) : ViewModel() {
     val history: StateFlow<List<DayRecord>> = dao.getAll()
         .stateIn(
             scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
+            started = SharingStarted.Eagerly,
             initialValue = emptyList()
         )
 
@@ -310,9 +313,17 @@ fun NoZeroDaysApp() {
     val configuration = LocalConfiguration.current
     val screenWidth = configuration.screenWidthDp.dp
 
-    // Ensure we have at least one day to show (today)
-    LaunchedEffect(Unit) {
-        viewModel.ensureAllDaysExist()
+    // Ensure days are backfilled whenever the app comes to the foreground
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val coroutineScope = rememberCoroutineScope()
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                coroutineScope.launch { viewModel.ensureAllDaysExist() }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     if (history.isEmpty()) return
@@ -322,19 +333,20 @@ fun NoZeroDaysApp() {
         pageCount = { history.size }
     )
 
-    // Sync pager to last page when new days are added
-    LaunchedEffect(history.size) {
-        if (history.isNotEmpty()) pagerState.scrollToPage(history.size - 1)
-    }
-
     val activeIndex = pagerState.currentPage.coerceIn(0, (history.size - 1).coerceAtLeast(0))
     val activeDay = history[activeIndex]
 
-    // Countdown timer
+    // Countdown timer — also detects midnight crossing to backfill the new day
     LaunchedEffect(Unit) {
+        var lastDate = LocalDateTime.now().toLocalDate()
         while (true) {
             val currentTime = LocalDateTime.now()
-            val endOfDay = currentTime.toLocalDate().plusDays(1).atStartOfDay()
+            val today = currentTime.toLocalDate()
+            if (today != lastDate) {
+                lastDate = today
+                viewModel.ensureAllDaysExist()
+            }
+            val endOfDay = today.plusDays(1).atStartOfDay()
             val duration = Duration.between(currentTime, endOfDay)
             timeRemaining = String.format(
                 Locale.getDefault(), "%02d:%02d:%02d",
@@ -343,8 +355,6 @@ fun NoZeroDaysApp() {
             delay(1000)
         }
     }
-
-    val coroutineScope = rememberCoroutineScope()
 
     // Observe the IME (keyboard) height so we can translate the entire layout upward
     val imeInsets = WindowInsets.ime
