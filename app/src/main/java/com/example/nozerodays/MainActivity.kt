@@ -864,9 +864,11 @@ fun ThisYearSection(history: List<DayRecord>, habitNames: List<String>) {
 fun ConsistencyGraph(historyData: List<DayRecord>) {
     val windowSize = 7
     val maxPoints = 22
-    val rangeEnd = (historyData.size - (windowSize - 1)).coerceAtMost(maxPoints)
-    val points = (0 until rangeEnd).map { i ->
-        historyData.subList(i, i + windowSize).count { it.completedHabits.isNotEmpty() }.toFloat() / windowSize
+    val capped = historyData.takeLast(maxPoints)
+    val points = capped.mapIndexed { i, _ ->
+        val windowStart = maxOf(0, i - windowSize + 1)
+        val window = capped.subList(windowStart, i + 1)
+        window.count { it.completedHabits.isNotEmpty() }.toFloat() / window.size
     }
     
     Row(
