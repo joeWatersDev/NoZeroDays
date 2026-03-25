@@ -83,6 +83,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.time.Duration
 import java.time.Instant
@@ -96,7 +98,7 @@ import kotlin.math.abs
 
 // --- Persistence Layer ---
 
-@Entity(tableName = "day_records")
+@Entity(tableName = "day_records", indices = [Index(value = ["date"], unique = true)])
 data class DayRecord(
     @PrimaryKey val id: UUID = UUID.randomUUID(),
     val date: LocalDateTime,
@@ -168,7 +170,7 @@ interface HabitNameDao {
     suspend fun insert(habitName: HabitNameEntity)
 }
 
-@Database(entities = [DayRecord::class, HabitNameEntity::class], version = 2)
+@Database(entities = [DayRecord::class, HabitNameEntity::class], version = 3)
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun dayRecordDao(): DayRecordDao
@@ -181,6 +183,28 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Recreate day_records with a unique index on date, deduplicating by preferring the record with the most completed habits
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `day_records_new` (
+                        `id` TEXT NOT NULL,
+                        `date` INTEGER NOT NULL,
+                        `completedHabits` TEXT NOT NULL,
+                        PRIMARY KEY(`id`)
+                    )
+                """.trimIndent())
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_day_records_date` ON `day_records_new` (`date`)")
+                db.execSQL("""
+                    INSERT OR IGNORE INTO `day_records_new` (`id`, `date`, `completedHabits`)
+                    SELECT `id`, `date`, `completedHabits` FROM `day_records`
+                    ORDER BY length(`completedHabits`) DESC, `id` ASC
+                """.trimIndent())
+                db.execSQL("DROP TABLE `day_records`")
+                db.execSQL("ALTER TABLE `day_records_new` RENAME TO `day_records`")
+            }
+        }
+
         @Volatile
         private var INSTANCE: AppDatabase? = null
 
@@ -190,7 +214,7 @@ abstract class AppDatabase : RoomDatabase() {
                     context.applicationContext,
                     AppDatabase::class.java,
                     "no_zero_days_db"
-                ).addMigrations(MIGRATION_1_2).build()
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3).build()
                 INSTANCE = instance
                 instance
             }
@@ -202,6 +226,7 @@ class HabitViewModel(applicationContext: Context) : ViewModel() {
     private val db = AppDatabase.getDatabase(applicationContext)
     private val dao = db.dayRecordDao()
     private val habitNameDao = db.habitNameDao()
+    private val ensureMutex = Mutex()
 
     val history: StateFlow<List<DayRecord>> = dao.getAll()
         .stateIn(
@@ -244,24 +269,26 @@ class HabitViewModel(applicationContext: Context) : ViewModel() {
     }
 
     suspend fun ensureAllDaysExist() {
-        withContext(Dispatchers.IO) {
-            val allRecords = dao.getAll().first()
-            val today = LocalDate.now()
+        ensureMutex.withLock {
+            withContext(Dispatchers.IO) {
+                val allRecords = dao.getAll().first()
+                val today = LocalDate.now()
 
-            val startDate = if (allRecords.isEmpty()) today
-                            else allRecords.minOf { it.date.toLocalDate() }
+                val startDate = if (allRecords.isEmpty()) today
+                                else allRecords.minOf { it.date.toLocalDate() }
 
-            val existingDates = allRecords.map { it.date.toLocalDate() }.toSet()
+                val existingDates = allRecords.map { it.date.toLocalDate() }.toSet()
 
-            val missing = mutableListOf<DayRecord>()
-            var date = startDate
-            while (!date.isAfter(today)) {
-                if (!existingDates.contains(date)) {
-                    missing.add(DayRecord(date = date.atStartOfDay(), completedHabits = emptySet()))
+                val missing = mutableListOf<DayRecord>()
+                var date = startDate
+                while (!date.isAfter(today)) {
+                    if (!existingDates.contains(date)) {
+                        missing.add(DayRecord(date = date.atStartOfDay(), completedHabits = emptySet()))
+                    }
+                    date = date.plusDays(1)
                 }
-                date = date.plusDays(1)
+                if (missing.isNotEmpty()) dao.insertAll(missing)
             }
-            if (missing.isNotEmpty()) dao.insertAll(missing)
         }
     }
 }
@@ -313,25 +340,46 @@ fun NoZeroDaysApp() {
     val configuration = LocalConfiguration.current
     val screenWidth = configuration.screenWidthDp.dp
 
-    // Ensure days are backfilled whenever the app comes to the foreground
+    val pagerState = rememberPagerState(
+        initialPage = (history.size - 1).coerceAtLeast(0),
+        pageCount = { history.size }
+    )
+
+    // Ensure days are backfilled whenever the app comes to the foreground,
+    // and scroll to today if the date changed while the app was backgrounded.
     val lifecycleOwner = LocalLifecycleOwner.current
     val coroutineScope = rememberCoroutineScope()
+    var dateAtPause by remember { mutableStateOf<LocalDate?>(null) }
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) {
-                coroutineScope.launch { viewModel.ensureAllDaysExist() }
+            when (event) {
+                Lifecycle.Event.ON_PAUSE -> dateAtPause = LocalDate.now()
+                Lifecycle.Event.ON_RESUME -> {
+                    coroutineScope.launch {
+                        val today = LocalDate.now()
+                        val newDayWhileAway = dateAtPause != null && today != dateAtPause
+                        viewModel.ensureAllDaysExist()
+                        if (newDayWhileAway) {
+                            viewModel.history.first { records -> records.any { it.date.toLocalDate() == today } }
+                            pagerState.animateScrollToPage(viewModel.history.value.size - 1)
+                        }
+                    }
+                }
+                else -> {}
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    if (history.isEmpty()) return
+    // On cold open, history starts as emptyList() so initialPage lands on 0.
+    // Wait for the first real load then jump to the last page.
+    LaunchedEffect(Unit) {
+        snapshotFlow { history }.first { it.isNotEmpty() }
+        pagerState.scrollToPage(history.size - 1)
+    }
 
-    val pagerState = rememberPagerState(
-        initialPage = (history.size - 1).coerceAtLeast(0),
-        pageCount = { history.size }
-    )
+    if (history.isEmpty()) return
 
     val activeIndex = pagerState.currentPage.coerceIn(0, (history.size - 1).coerceAtLeast(0))
     val activeDay = history[activeIndex]
@@ -460,7 +508,7 @@ fun NoZeroDaysApp() {
                 Text(
                     text = buildAnnotatedString {
                         withStyle(SpanStyle(color = Color(0xFFC3C3C3), fontWeight = FontWeight.Medium)) {
-                            append("Make every day ")
+                            append("Make today ")
                         }
                         withStyle(SpanStyle(color = Color.White, fontWeight = FontWeight.Bold)) {
                             append("count")
