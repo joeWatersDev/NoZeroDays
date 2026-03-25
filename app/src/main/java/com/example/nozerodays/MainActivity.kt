@@ -164,6 +164,9 @@ interface DayRecordDao {
 
     @Query("SELECT * FROM day_records WHERE date >= :since ORDER BY date ASC")
     fun getRecent(since: LocalDateTime): Flow<List<DayRecord>>
+
+    @Query("DELETE FROM day_records WHERE date > :todayMidnight AND completedHabits = ''")
+    suspend fun deleteEmptyFutureDays(todayMidnight: LocalDateTime)
 }
 
 @Dao
@@ -276,8 +279,9 @@ class HabitViewModel(applicationContext: Context) : ViewModel() {
     suspend fun ensureAllDaysExist() {
         ensureMutex.withLock {
             withContext(Dispatchers.IO) {
-                val allRecords = dao.getAll().first()
                 val today = LocalDate.now()
+                dao.deleteEmptyFutureDays(today.atStartOfDay())
+                val allRecords = dao.getAll().first()
 
                 val startDate = if (allRecords.isEmpty()) today
                                 else allRecords.minOf { it.date.toLocalDate() }
