@@ -7,6 +7,9 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.core.view.WindowCompat
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.Canvas
@@ -38,6 +41,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -80,6 +84,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 import com.example.nozerodays.ui.theme.DMSansFontFamily
 import com.example.nozerodays.ui.theme.NoZeroDaysTheme
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -952,28 +957,72 @@ fun ConsistencyGraph(historyData: List<DayRecord>) {
 
 @Composable
 fun QuadrantCircle(completedHabits: Set<Int>, size: Dp) {
+    val startAngles = listOf(180f, 270f, 90f, 0f)
+    val quadrantScales = remember { List(4) { i -> Animatable(if (completedHabits.contains(i)) 1f else 0f) } }
+    val slashStrokeScale = remember { Animatable(if (completedHabits.isEmpty()) 1f else 0f) }
+    val prevRef = remember { mutableStateOf(completedHabits) }
+
+    LaunchedEffect(completedHabits) {
+        val prev = prevRef.value
+        prevRef.value = completedHabits
+        val spec = tween<Float>(150, easing = FastOutSlowInEasing)
+
+        when {
+            prev.isEmpty() && completedHabits.isNotEmpty() -> {
+                // Empty day: slash stroke shrinks to nothing, then quadrant grows from center.
+                // Iterate all indices so any arc left non-zero by an interrupted prior animation
+                // is also driven to its correct target.
+                slashStrokeScale.animateTo(0f, spec)
+                habits.indices.forEach { index ->
+                    val target = if (completedHabits.contains(index)) 1f else 0f
+                    launch { quadrantScales[index].animateTo(target, spec) }
+                }
+            }
+            prev.isNotEmpty() && completedHabits.isEmpty() -> {
+                // Last habit removed: quadrant shrinks to center, then slash stroke grows back.
+                // Iterate all indices so any arc frozen mid-animation by a cancelled else branch
+                // is also collapsed before the slash appears.
+                coroutineScope {
+                    habits.indices.forEach { index -> launch { quadrantScales[index].animateTo(0f, spec) } }
+                }
+                slashStrokeScale.animateTo(1f, spec)
+            }
+            else -> {
+                // Mid-day toggle: animate changed quadrant(s) and ensure slash reaches
+                // its correct target in case a prior animation sequence was interrupted.
+                launch { slashStrokeScale.animateTo(if (completedHabits.isEmpty()) 1f else 0f, spec) }
+                habits.indices.forEach { index ->
+                    val target = if (completedHabits.contains(index)) 1f else 0f
+                    launch { quadrantScales[index].animateTo(target, spec) }
+                }
+            }
+        }
+    }
+
     Canvas(modifier = Modifier.size(size)) {
-        // Use strictly radius from size to ensure uniform growth
-        val radius = size.toPx() / 2f
-        
+        val canvasPx = size.toPx()
+        val radius = canvasPx / 2f
         drawCircle(color = Color(0xFF242424), radius = radius)
 
         habits.forEachIndexed { index, habit ->
-            if (completedHabits.contains(index)) {
-                val startAngles = listOf(180f, 270f, 90f, 0f)
+            val scale = quadrantScales[index].value
+            if (scale > 0f) {
+                val arcSize = canvasPx * scale
                 drawArc(
                     color = habit.color,
                     startAngle = startAngles[index],
                     sweepAngle = 90f,
                     useCenter = true,
+                    topLeft = Offset((canvasPx - arcSize) / 2f, (canvasPx - arcSize) / 2f),
+                    size = Size(arcSize, arcSize),
                     style = Fill
                 )
             }
         }
 
-        // If empty, draw the opaque black slash
-        if (completedHabits.isEmpty()) {
-            val strokeWidthPx = size.toPx() * 1.5f / 16f
+        val slashScale = slashStrokeScale.value
+        if (slashScale > 0f) {
+            val strokeWidthPx = size.toPx() * 1.5f / 16f * slashScale
             val offset = radius * 0.7071f
             drawLine(
                 color = Color.Black,
