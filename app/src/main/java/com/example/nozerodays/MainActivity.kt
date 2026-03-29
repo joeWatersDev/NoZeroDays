@@ -9,6 +9,10 @@ import androidx.core.view.WindowCompat
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
@@ -345,6 +349,8 @@ fun NoZeroDaysApp() {
     var timeRemaining by remember { mutableStateOf("00:00:00") }
     val habitNames by viewModel.habitNames.collectAsState()
     var showStats by remember { mutableStateOf(false) }
+    val prefs = remember { context.getSharedPreferences("nzd_prefs", Context.MODE_PRIVATE) }
+    var showOnboarding by remember { mutableStateOf(!prefs.getBoolean("onboarding_complete", false)) }
     val density = LocalDensity.current
     val configuration = LocalConfiguration.current
     val screenWidth = configuration.screenWidthDp.dp
@@ -621,6 +627,7 @@ fun NoZeroDaysApp() {
             HabitGrid(
                 completedHabits = activeDay.completedHabits,
                 habitNames = habitNames,
+                glowing = showOnboarding,
                 onToggleHabit = { habitIndex ->
                     viewModel.toggleHabit(activeDay, habitIndex)
                 },
@@ -642,6 +649,83 @@ fun NoZeroDaysApp() {
                 onClose = { showStats = false }
             )
         }
+
+        // Onboarding Popup
+        if (showOnboarding) {
+            OnboardingPopup(onDismiss = {
+                prefs.edit().putBoolean("onboarding_complete", true).apply()
+                showOnboarding = false
+            })
+        }
+    }
+}
+
+@Composable
+fun OnboardingPopup(onDismiss: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .clickable(enabled = false) {}
+    ) {
+        // Scrim only over the upper portion — habit grid (240dp) is left unobscured
+        // so the glow effect on the buttons is visible.
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .background(Color.Black.copy(alpha = 0.75f)),
+            contentAlignment = Alignment.BottomCenter
+        ) {
+            Column(
+            modifier = Modifier
+                .padding(horizontal = 32.dp)
+                .padding(bottom = 24.dp)
+                .background(Color(0xFF1C1C1C), RoundedCornerShape(16.dp))
+                .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(16.dp))
+                .padding(28.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                text = "Welcome to No Zero Days",
+                color = Color.White,
+                fontWeight = FontWeight.Bold,
+                fontSize = 20.sp,
+                textAlign = TextAlign.Center
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(
+                text = "Every day is a chance to build your habits. Tap a button below to mark it done for today.",
+                color = Color(0xFFC3C3C3),
+                fontSize = 15.sp,
+                textAlign = TextAlign.Center,
+                lineHeight = 22.sp
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(
+                text = "Long-press any habit button to rename it and make it yours.",
+                color = Color(0xFFC3C3C3),
+                fontSize = 15.sp,
+                textAlign = TextAlign.Center,
+                lineHeight = 22.sp
+            )
+            Spacer(modifier = Modifier.height(28.dp))
+            Box(
+                modifier = Modifier
+                    .border(1.dp, Color.White.copy(alpha = 0.5f), RoundedCornerShape(4.dp))
+                    .noRippleClickable { onDismiss() }
+                    .padding(horizontal = 48.dp, vertical = 10.dp)
+            ) {
+                Text(
+                    text = "OK",
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 16.sp
+                )
+            }
+        }
+        }
+        // Transparent spacer matching the habit grid height — no scrim here
+        Spacer(modifier = Modifier.height(240.dp))
     }
 }
 
@@ -1057,17 +1141,18 @@ fun formatCurrentDate(dateTime: LocalDateTime): String {
 fun HabitGrid(
     completedHabits: Set<Int>,
     habitNames: List<String>,
+    glowing: Boolean = false,
     onToggleHabit: (Int) -> Unit,
     onRenameHabit: (Int, String) -> Unit
 ) {
     Column(modifier = Modifier.fillMaxWidth().height(240.dp)) {
         Row(modifier = Modifier.weight(1f)) {
-            HabitButton(0, habits[0], habitNames[0], completedHabits.contains(0), onToggleHabit, onRenameHabit, Modifier.weight(1f))
-            HabitButton(1, habits[1], habitNames[1], completedHabits.contains(1), onToggleHabit, onRenameHabit, Modifier.weight(1f))
+            HabitButton(0, habits[0], habitNames[0], completedHabits.contains(0), glowing, onToggleHabit, onRenameHabit, Modifier.weight(1f))
+            HabitButton(1, habits[1], habitNames[1], completedHabits.contains(1), glowing, onToggleHabit, onRenameHabit, Modifier.weight(1f))
         }
         Row(modifier = Modifier.weight(1f)) {
-            HabitButton(2, habits[2], habitNames[2], completedHabits.contains(2), onToggleHabit, onRenameHabit, Modifier.weight(1f))
-            HabitButton(3, habits[3], habitNames[3], completedHabits.contains(3), onToggleHabit, onRenameHabit, Modifier.weight(1f))
+            HabitButton(2, habits[2], habitNames[2], completedHabits.contains(2), glowing, onToggleHabit, onRenameHabit, Modifier.weight(1f))
+            HabitButton(3, habits[3], habitNames[3], completedHabits.contains(3), glowing, onToggleHabit, onRenameHabit, Modifier.weight(1f))
         }
     }
 }
@@ -1079,6 +1164,7 @@ fun HabitButton(
     habit: Habit,
     name: String,
     isCompleted: Boolean,
+    glowing: Boolean = false,
     onToggle: (Int) -> Unit,
     onRename: (Int, String) -> Unit,
     modifier: Modifier = Modifier
@@ -1105,10 +1191,27 @@ fun HabitButton(
         if (!imeVisible && isEditing) commitEdit()
     }
 
+    val infiniteTransition = rememberInfiniteTransition(label = "glow_$index")
+    val glowAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.75f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1400, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "glowAlpha_$index"
+    )
+
+    val backgroundAlpha = when {
+        glowing -> glowAlpha
+        isCompleted -> 1f
+        else -> 0.35f
+    }
+
     Box(
         modifier = modifier
             .fillMaxHeight()
-            .background(habit.color.copy(alpha = if (isCompleted) 1f else 0.35f))
+            .background(habit.color.copy(alpha = backgroundAlpha))
             .combinedClickable(
                 onClick = { 
                     if (isEditing) {
@@ -1161,7 +1264,7 @@ fun HabitButton(
         } else {
             Text(
                 text = name,
-                color = Color.White.copy(alpha = if (isCompleted) 1f else 0.4f),
+                color = Color.White.copy(alpha = if (isCompleted || glowing) 1f else 0.4f),
                 fontWeight = FontWeight.Bold,
                 fontSize = 18.sp
             )
