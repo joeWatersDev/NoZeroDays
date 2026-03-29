@@ -322,6 +322,10 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+private const val PREFS_FILE = "nzd_prefs"
+private const val KEY_ONBOARDING_COMPLETE = "onboarding_complete"
+private val HABIT_GRID_HEIGHT = 240.dp
+
 data class Habit(val name: String, val color: Color)
 val habits = listOf(
     Habit("Art", Color(0xFFEB5353)), // TL
@@ -349,8 +353,8 @@ fun NoZeroDaysApp() {
     var timeRemaining by remember { mutableStateOf("00:00:00") }
     val habitNames by viewModel.habitNames.collectAsState()
     var showStats by remember { mutableStateOf(false) }
-    val prefs = remember { context.getSharedPreferences("nzd_prefs", Context.MODE_PRIVATE) }
-    var showOnboarding by remember { mutableStateOf(!prefs.getBoolean("onboarding_complete", false)) }
+    val prefs = remember { context.getSharedPreferences(PREFS_FILE, Context.MODE_PRIVATE) }
+    var showOnboarding by remember { mutableStateOf(!prefs.getBoolean(KEY_ONBOARDING_COMPLETE, false)) }
     val density = LocalDensity.current
     val configuration = LocalConfiguration.current
     val screenWidth = configuration.screenWidthDp.dp
@@ -653,7 +657,7 @@ fun NoZeroDaysApp() {
         // Onboarding Popup
         if (showOnboarding) {
             OnboardingPopup(onDismiss = {
-                prefs.edit().putBoolean("onboarding_complete", true).apply()
+                prefs.edit().putBoolean(KEY_ONBOARDING_COMPLETE, true).apply()
                 showOnboarding = false
             })
         }
@@ -725,7 +729,7 @@ fun OnboardingPopup(onDismiss: () -> Unit) {
         }
         }
         // Transparent spacer matching the habit grid height — no scrim here
-        Spacer(modifier = Modifier.height(240.dp))
+        Spacer(modifier = Modifier.height(HABIT_GRID_HEIGHT))
     }
 }
 
@@ -1145,7 +1149,7 @@ fun HabitGrid(
     onToggleHabit: (Int) -> Unit,
     onRenameHabit: (Int, String) -> Unit
 ) {
-    Column(modifier = Modifier.fillMaxWidth().height(240.dp)) {
+    Column(modifier = Modifier.fillMaxWidth().height(HABIT_GRID_HEIGHT)) {
         Row(modifier = Modifier.weight(1f)) {
             HabitButton(0, habits[0], habitNames[0], completedHabits.contains(0), glowing, onToggleHabit, onRenameHabit, Modifier.weight(1f))
             HabitButton(1, habits[1], habitNames[1], completedHabits.contains(1), glowing, onToggleHabit, onRenameHabit, Modifier.weight(1f))
@@ -1191,19 +1195,19 @@ fun HabitButton(
         if (!imeVisible && isEditing) commitEdit()
     }
 
-    val infiniteTransition = rememberInfiniteTransition(label = "glow_$index")
-    val glowAlpha by infiniteTransition.animateFloat(
-        initialValue = 0.75f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1400, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "glowAlpha_$index"
-    )
-
     val backgroundAlpha = when {
-        glowing -> glowAlpha
+        glowing -> {
+            val transition = rememberInfiniteTransition(label = "glow_$index")
+            transition.animateFloat(
+                initialValue = 0.75f,
+                targetValue = 1f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(1400, easing = FastOutSlowInEasing),
+                    repeatMode = RepeatMode.Reverse
+                ),
+                label = "glowAlpha_$index"
+            ).value
+        }
         isCompleted -> 1f
         else -> 0.35f
     }
