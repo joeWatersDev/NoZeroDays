@@ -392,9 +392,13 @@ fun NoZeroDaysApp() {
     }
 
     // On cold open, history starts as emptyList() so initialPage lands on 0.
-    // Wait for the first real load then jump to the last page.
+    // Wait until today's row is present (ensureAllDaysExist runs in ON_RESUME)
+    // so we don't race and land on yesterday.
     LaunchedEffect(Unit) {
-        snapshotFlow { history }.first { it.isNotEmpty() }
+        val today = LocalDate.now()
+        snapshotFlow { history }.first { records ->
+            records.any { it.date.toLocalDate() == today }
+        }
         pagerState.scrollToPage(history.size - 1)
     }
 
