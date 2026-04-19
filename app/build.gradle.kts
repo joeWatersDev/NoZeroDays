@@ -13,8 +13,8 @@ android {
         applicationId = "com.github.joeWatersDev.nozerodays"
         minSdk = 27
         targetSdk = 36 // Updated to align with compileSdk
-        versionCode = 3
-        versionName = "1.0"
+        versionCode = 5
+        versionName = "1.1.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
