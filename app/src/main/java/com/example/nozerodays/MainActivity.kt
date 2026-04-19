@@ -2,9 +2,12 @@ package com.example.nozerodays
 
 import android.content.Context
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.view.WindowCompat
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
@@ -95,6 +98,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
+import org.json.JSONObject
 import java.time.Duration
 import java.time.Instant
 import java.time.LocalDate
@@ -171,6 +176,9 @@ interface DayRecordDao {
 
     @Query("DELETE FROM day_records WHERE date > :todayMidnight AND completedHabits = ''")
     suspend fun deleteEmptyFutureDays(todayMidnight: LocalDateTime)
+
+    @Query("DELETE FROM day_records")
+    suspend fun clearAll()
 }
 
 @Dao
@@ -180,6 +188,9 @@ interface HabitNameDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(habitName: HabitNameEntity)
+
+    @Query("DELETE FROM habit_names")
+    suspend fun clearAll()
 }
 
 @Database(entities = [DayRecord::class, HabitNameEntity::class], version = 3)
@@ -278,6 +289,58 @@ class HabitViewModel(applicationContext: Context) : ViewModel() {
         viewModelScope.launch(Dispatchers.IO) {
             dao.insert(updatedRecord)
         }
+    }
+
+    suspend fun exportJson(): String = withContext(Dispatchers.IO) {
+        val records = dao.getAll().first()
+        val names = habitNameDao.getAll().first()
+        val root = JSONObject().apply {
+            put("version", 1)
+            put("exportedAt", LocalDateTime.now().toString())
+            put("dayRecords", JSONArray().apply {
+                records.forEach { r ->
+                    put(JSONObject().apply {
+                        put("id", r.id.toString())
+                        put("date", r.date.toString())
+                        put("completedHabits", JSONArray(r.completedHabits.toList()))
+                    })
+                }
+            })
+            put("habitNames", JSONArray().apply {
+                names.forEach { n ->
+                    put(JSONObject().apply {
+                        put("index", n.habitIndex)
+                        put("name", n.name)
+                    })
+                }
+            })
+        }
+        root.toString(2)
+    }
+
+    suspend fun importJson(json: String): Int = withContext(Dispatchers.IO) {
+        val root = JSONObject(json)
+        val recordsArr = root.getJSONArray("dayRecords")
+        val importedRecords = (0 until recordsArr.length()).map { i ->
+            val obj = recordsArr.getJSONObject(i)
+            val completedArr = obj.getJSONArray("completedHabits")
+            val completed = (0 until completedArr.length()).map { completedArr.getInt(it) }.toSet()
+            DayRecord(
+                id = UUID.fromString(obj.getString("id")),
+                date = LocalDateTime.parse(obj.getString("date")),
+                completedHabits = completed
+            )
+        }
+        val namesArr = root.getJSONArray("habitNames")
+        val importedNames = (0 until namesArr.length()).map { i ->
+            val obj = namesArr.getJSONObject(i)
+            HabitNameEntity(habitIndex = obj.getInt("index"), name = obj.getString("name"))
+        }
+        dao.clearAll()
+        habitNameDao.clearAll()
+        dao.insertAll(importedRecords)
+        importedNames.forEach { habitNameDao.insert(it) }
+        importedRecords.size
     }
 
     suspend fun ensureAllDaysExist() {
@@ -646,6 +709,40 @@ fun NoZeroDaysApp() {
         }
 
         // Stats Screen Overlay
+        val exportLauncher = rememberLauncherForActivityResult(
+            contract = ActivityResultContracts.CreateDocument("application/json")
+        ) { uri ->
+            if (uri != null) {
+                coroutineScope.launch {
+                    try {
+                        val json = viewModel.exportJson()
+                        context.contentResolver.openOutputStream(uri)?.use {
+                            it.write(json.toByteArray())
+                        }
+                        Toast.makeText(context, "Export successful", Toast.LENGTH_SHORT).show()
+                    } catch (e: Exception) {
+                        Toast.makeText(context, "Export failed: ${e.message}", Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+        }
+        val importLauncher = rememberLauncherForActivityResult(
+            contract = ActivityResultContracts.OpenDocument()
+        ) { uri ->
+            if (uri != null) {
+                coroutineScope.launch {
+                    try {
+                        val json = context.contentResolver.openInputStream(uri)?.use {
+                            it.bufferedReader().readText()
+                        } ?: return@launch
+                        val count = viewModel.importJson(json)
+                        Toast.makeText(context, "Imported $count days", Toast.LENGTH_SHORT).show()
+                    } catch (e: Exception) {
+                        Toast.makeText(context, "Import failed: ${e.message}", Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+        }
         AnimatedVisibility(
             visible = showStats,
             enter = slideInVertically(initialOffsetY = { -it }),
@@ -654,7 +751,9 @@ fun NoZeroDaysApp() {
             StatsScreen(
                 history = history,
                 habitNames = habitNames,
-                onClose = { showStats = false }
+                onClose = { showStats = false },
+                onExport = { exportLauncher.launch("nozerodays-backup.json") },
+                onImport = { importLauncher.launch(arrayOf("*/*")) }
             )
         }
 
@@ -741,7 +840,9 @@ fun OnboardingPopup(onDismiss: () -> Unit) {
 fun StatsScreen(
     history: List<DayRecord>,
     habitNames: List<String>,
-    onClose: () -> Unit
+    onClose: () -> Unit,
+    onExport: () -> Unit,
+    onImport: () -> Unit
 ) {
     val last28Days = history.takeLast(28)
 
@@ -852,7 +953,39 @@ fun StatsScreen(
                 Spacer(modifier = Modifier.height(8.dp))
                 ConsistencyGraph(history.takeLast(28))
             }
-            
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .border(1.dp, Color.White.copy(alpha = 0.4f), RoundedCornerShape(2.dp))
+                        .noRippleClickable { onExport() }
+                        .padding(horizontal = 22.dp, vertical = 6.dp)
+                ) {
+                    Text(
+                        text = "export",
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 16.sp
+                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .border(1.dp, Color.White.copy(alpha = 0.4f), RoundedCornerShape(2.dp))
+                        .noRippleClickable { onImport() }
+                        .padding(horizontal = 22.dp, vertical = 6.dp)
+                ) {
+                    Text(
+                        text = "import",
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 16.sp
+                    )
+                }
+            }
+
             Spacer(modifier = Modifier.height(8.dp))
         }
     }
